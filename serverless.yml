@@ -1,0 +1,31 @@
+service: nutt-daily-player-update
+
+frameworkVersion: '3'
+
+provider:
+  name: aws
+  runtime: python3.10
+  stage: dev
+  region: us-west-1
+
+plugins:
+  - serverless-python-requirements
+
+package:
+  individually: true
+
+functions:
+  lambda:
+    name: daily-player-update
+    handler: handler.main
+    description: update-lambda
+    timeout: 180
+    package:
+      patterns:
+        - "!node_modules/**"
+        - "!package-lock.json"
+        - "!package.json"
+
+custom:
+  pythonRequirements:
+    dockerizePip: non-linux
