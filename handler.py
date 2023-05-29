@@ -19,7 +19,7 @@ DATABASE_DAY = {
 }
 
 
-def main():
+def main(*_, **__):
     match_day = dt.datetime.today().weekday()
     database = DATABASE_DAY[match_day + 1]
 
