@@ -37,15 +37,16 @@ def main(*_, **__):
         leaderboard = results.get('leaderboard')
         top_ten = leaderboard[0:10]
 
-        _insert_golferlookup(top_ten, tournament_id, game_id)
+        _insert_golferlookup(top_ten, tournament_id)
 
         users = _select_users(tournament_id)
         for user in users:
             user_id = user[0]
-            game_id = user[1]
-            for golfer in top_ten:
-                golfer_id = golfer.get('player_id')
-                _insert_rankings(database, game_id, user_id, golfer_id, tournament_id)
+            values = [
+                (game_id, user_id, golfer.get('player_id'), tournament_id)
+                for golfer in top_ten
+            ]
+            _insert_rankings(database, values)
 
 
 def _select_tournaments(datetime):
@@ -86,7 +87,7 @@ def _select_users(tournament_id):
     cur = conn.cursor()
 
     query = """
-        SELECT a.user_id, a.game_id
+        SELECT a.user_id
         FROM gameuser a
         LEFT JOIN game b 
         ON a.game_id = b.game_id 
@@ -101,7 +102,7 @@ def _select_users(tournament_id):
     return rows
 
 
-def _insert_golferlookup(golfers, tournament_id, game_id):
+def _insert_golferlookup(golfers, tournament_id):
     conn = psycopg2.connect(
         host=os.getenv("POSTGRES_HOST"),
         port="5432",
@@ -110,13 +111,16 @@ def _insert_golferlookup(golfers, tournament_id, game_id):
         password=os.getenv("POSTGRES_PASSWORD"),
     )
     cur = conn.cursor()
-    query = """INSERT INTO public.golfer_lookup gl 
-        (game_id, golfer_first_name, golfer_last_name, tournament_id) 
+    query = """INSERT INTO public.golfer_lookup
+        (golfer_id, golfer_first_name, golfer_last_name, tournament_id) 
         VALUES 
-        (%s, %s, %s, %s);"""
+        (%s, %s, %s, %s)
+        ON CONFLICT (golfer_id, tournament_id)
+        DO NOTHING
+        """
 
     for golfer in golfers:
-        cur.execute(query, (game_id, golfer.get("first_name"), golfer.get("last_name"), tournament_id))
+        cur.execute(query, (golfer.get("player_id"), golfer.get("first_name"), golfer.get("last_name"), tournament_id))
 
     conn.commit()
 
@@ -124,7 +128,7 @@ def _insert_golferlookup(golfers, tournament_id, game_id):
     conn.close()
 
 
-def _insert_rankings(database, game_id, user_id, golfer_id, tournament_id):
+def _insert_rankings(database, values):
     conn = psycopg2.connect(
         host=os.getenv("POSTGRES_HOST"),
         port="5432",
@@ -135,8 +139,10 @@ def _insert_rankings(database, game_id, user_id, golfer_id, tournament_id):
     cur = conn.cursor()
 
     query = f"INSERT INTO {database} (game_id, user_id, golfer_id, tournament_id) " \
-            f"VALUES (%s, %s, %s, %s, %s);"
-    cur.execute(query, (game_id, user_id, golfer_id, tournament_id))
+            f"VALUES (%s, %s, %s, %s);"
+
+    for value in values:
+        cur.execute(query, value)
 
     conn.commit()
 
