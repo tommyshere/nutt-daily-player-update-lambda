@@ -23,18 +23,12 @@ def main(*_, **__):
     match_day = dt.datetime.today().weekday()
     database = DATABASE_DAY[match_day + 1]
 
-    conn = psycopg2.connect(
-        host=os.getenv("POSTGRES_HOST"),
-        port="5432",
-        database=os.getenv("POSTGRES_DATABASE"),
-        user=os.getenv("POSTGRES_USER"),
-        password=os.getenv("POSTGRES_PASSWORD"),
-    )
-    cur = conn.cursor()
-    tournaments = _select_tournaments(cur, dt.datetime.now().strftime("%Y-%m-%d"))
+    tournaments = _select_tournaments(dt.datetime.now().strftime("%Y-%m-%d"))
 
     for tournament in tournaments:
         tournament_id = tournament[0]
+        game_id = tournament[1]
+
         leaderboard_url = f"{URL}/leaderboard/{tournament_id}"
         response = requests.get(leaderboard_url, headers=HEADERS)
         json_results = response.json()
@@ -43,34 +37,54 @@ def main(*_, **__):
         leaderboard = results.get('leaderboard')
         top_ten = leaderboard[0:10]
 
-        users = _select_users(cur, tournament_id)
+        _insert_golferlookup(top_ten, tournament_id, game_id)
+
+        users = _select_users(tournament_id)
         for user in users:
             user_id = user[0]
             game_id = user[1]
             for golfer in top_ten:
                 golfer_id = golfer.get('player_id')
-                golfer_name = f"{golfer.get('first_name')} {golfer.get('last_name')}"
-                _insert_rankings(cur, database, game_id, user_id, golfer_id, golfer_name, tournament_id)
-
-            conn.commit()
-
-    cur.close()
-    conn.close()
+                _insert_rankings(database, game_id, user_id, golfer_id, tournament_id)
 
 
-def _select_tournaments(cur, datetime):
+def _select_tournaments(datetime):
+    conn = psycopg2.connect(
+        host=os.getenv("POSTGRES_HOST"),
+        port="5432",
+        database=os.getenv("POSTGRES_DATABASE"),
+        user=os.getenv("POSTGRES_USER"),
+        password=os.getenv("POSTGRES_PASSWORD"),
+    )
+    cur = conn.cursor()
+
     query = """
-        SELECT tournament_id
-        FROM public.tournament_lookup
+        SELECT tl.tournament_id, g.game_id
+        FROM public.tournament_lookup tl
+        INNER JOIN public.game g
+        ON g.tournament_id = tl.tournament_id
         WHERE start_datetime <= %s
         AND end_datetime >= %s
     """
     cur.execute(query, (datetime, datetime))
     rows = cur.fetchall()
+
+    cur.close()
+    conn.close()
+
     return rows
 
 
-def _select_users(cur, tournament_id):
+def _select_users(tournament_id):
+    conn = psycopg2.connect(
+        host=os.getenv("POSTGRES_HOST"),
+        port="5432",
+        database=os.getenv("POSTGRES_DATABASE"),
+        user=os.getenv("POSTGRES_USER"),
+        password=os.getenv("POSTGRES_PASSWORD"),
+    )
+    cur = conn.cursor()
+
     query = """
         SELECT a.user_id, a.game_id
         FROM gameuser a
@@ -80,13 +94,54 @@ def _select_users(cur, tournament_id):
     """
     cur.execute(query, (tournament_id,))
     rows = cur.fetchall()
+
+    cur.close()
+    conn.close()
+
     return rows
 
 
-def _insert_rankings(cur, database, game_id, user_id, golfer_id, golfer_name, tournament_id):
-    query = f"INSERT INTO {database} (game_id, user_id, golfer_id, golfer_name, tournament_id) " \
+def _insert_golferlookup(golfers, tournament_id, game_id):
+    conn = psycopg2.connect(
+        host=os.getenv("POSTGRES_HOST"),
+        port="5432",
+        database=os.getenv("POSTGRES_DATABASE"),
+        user=os.getenv("POSTGRES_USER"),
+        password=os.getenv("POSTGRES_PASSWORD"),
+    )
+    cur = conn.cursor()
+    query = """INSERT INTO public.golfer_lookup gl 
+        (game_id, golfer_first_name, golfer_last_name, tournament_id) 
+        VALUES 
+        (%s, %s, %s, %s);"""
+
+    for golfer in golfers:
+        cur.execute(query, (game_id, golfer.get("first_name"), golfer.get("last_name"), tournament_id))
+
+    conn.commit()
+
+    cur.close()
+    conn.close()
+
+
+def _insert_rankings(database, game_id, user_id, golfer_id, tournament_id):
+    conn = psycopg2.connect(
+        host=os.getenv("POSTGRES_HOST"),
+        port="5432",
+        database=os.getenv("POSTGRES_DATABASE"),
+        user=os.getenv("POSTGRES_USER"),
+        password=os.getenv("POSTGRES_PASSWORD"),
+    )
+    cur = conn.cursor()
+
+    query = f"INSERT INTO {database} (game_id, user_id, golfer_id, tournament_id) " \
             f"VALUES (%s, %s, %s, %s, %s);"
-    cur.execute(query, (game_id, user_id, golfer_id, golfer_name, tournament_id))
+    cur.execute(query, (game_id, user_id, golfer_id, tournament_id))
+
+    conn.commit()
+
+    cur.close()
+    conn.close()
 
 
 if __name__ == "__main__":
