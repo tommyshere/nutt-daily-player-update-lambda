@@ -39,7 +39,7 @@ def main(*_, **__):
 
         _insert_golferlookup(top_ten, tournament_id)
 
-        users = _select_users(tournament_id)
+        users = _select_users(tournament_id, game_id)
         for user in users:
             user_id = user[0]
             values = [
@@ -76,7 +76,7 @@ def _select_tournaments(datetime):
     return rows
 
 
-def _select_users(tournament_id):
+def _select_users(tournament_id, game_id):
     conn = psycopg2.connect(
         host=os.getenv("POSTGRES_HOST"),
         port="5432",
@@ -92,8 +92,9 @@ def _select_users(tournament_id):
         LEFT JOIN game b 
         ON a.game_id = b.game_id 
         WHERE b.tournament_id = %s
+        and a.game_id = %s
     """
-    cur.execute(query, (tournament_id,))
+    cur.execute(query, (tournament_id, game_id))
     rows = cur.fetchall()
 
     cur.close()
